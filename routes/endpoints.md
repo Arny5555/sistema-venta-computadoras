@@ -1,8 +1,7 @@
-# Mapeo de rutas (API) y consultas clave
+# Mapeo de rutas (API) y consultas MongoDB
 
-Documentación de endpoints REST propuestos para el **Sistema para Venta de Computadoras**, alineados con las tablas del modelo relacional.
-
-Base URL sugerida: `http://localhost:3000/api`
+Base URL sugerida: `http://localhost:3000/api`  
+Base de datos: `tienda_computadoras`
 
 ---
 
@@ -10,23 +9,37 @@ Base URL sugerida: `http://localhost:3000/api`
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| GET | `/api/productos` | Listar productos (filtros: `?categoria=`, `?activo=1`) |
-| GET | `/api/productos/:id` | Obtener un producto por ID |
+| GET | `/api/productos` | Listar (`?categoria=`, `?activo=true`) |
+| GET | `/api/productos/:id` | Obtener por `_id` |
 | POST | `/api/productos` | Crear producto |
-| PUT | `/api/productos/:id` | Actualizar producto |
-| DELETE | `/api/productos/:id` | Desactivar producto (`activo = 0`) |
-| GET | `/api/productos/:id/stock` | Consultar stock disponible |
+| PUT | `/api/productos/:id` | Actualizar |
+| DELETE | `/api/productos/:id` | Soft delete (`activo: false`) |
 
-### Consulta clave — listado con proveedor
-
-```sql
-SELECT p.id_producto, p.codigo_sku, p.nombre, p.categoria, p.marca,
-       p.precio_unitario, p.stock, p.activo,
-       pr.razon_social AS proveedor
-FROM productos p
-INNER JOIN proveedores pr ON pr.id_proveedor = p.id_proveedor
-WHERE p.activo = 1
-ORDER BY p.nombre;
+```js
+// Listado con proveedor (lookup)
+db.productos.aggregate([
+  { $match: { activo: true } },
+  {
+    $lookup: {
+      from: 'proveedores',
+      localField: 'id_proveedor',
+      foreignField: '_id',
+      as: 'proveedor'
+    }
+  },
+  { $unwind: '$proveedor' },
+  {
+    $project: {
+      codigo_sku: 1,
+      nombre: 1,
+      categoria: 1,
+      marca: 1,
+      precio_unitario: 1,
+      stock: 1,
+      'proveedor.razon_social': 1
+    }
+  }
+]);
 ```
 
 ---
@@ -35,19 +48,16 @@ ORDER BY p.nombre;
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| GET | `/api/clientes` | Listar clientes |
-| GET | `/api/clientes/:id` | Obtener cliente por ID |
-| POST | `/api/clientes` | Registrar cliente |
-| PUT | `/api/clientes/:id` | Actualizar datos del cliente |
-| GET | `/api/clientes/:id/ventas` | Historial de ventas del cliente |
+| GET | `/api/clientes` | Listar |
+| GET | `/api/clientes/:id` | Obtener |
+| POST | `/api/clientes` | Registrar |
+| GET | `/api/clientes/:id/ventas` | Historial de compras |
 
-### Consulta clave — historial de compras
-
-```sql
-SELECT v.id_venta, v.fecha_venta, v.total, v.metodo_pago, v.estado
-FROM ventas v
-WHERE v.id_cliente = ?
-ORDER BY v.fecha_venta DESC;
+```js
+db.ventas.find(
+  { id_cliente: ObjectId('672000000000000000000001') },
+  { fecha_venta: 1, total: 1, metodo_pago: 1, estado: 1 }
+).sort({ fecha_venta: -1 });
 ```
 
 ---
@@ -56,51 +66,75 @@ ORDER BY v.fecha_venta DESC;
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| GET | `/api/proveedores` | Listar proveedores |
-| GET | `/api/proveedores/:id` | Obtener proveedor |
-| POST | `/api/proveedores` | Crear proveedor |
-| PUT | `/api/proveedores/:id` | Actualizar proveedor |
-| GET | `/api/proveedores/:id/productos` | Productos abastecidos por el proveedor |
+| GET | `/api/proveedores` | Listar |
+| GET | `/api/proveedores/:id` | Obtener |
+| POST | `/api/proveedores` | Crear |
+| GET | `/api/proveedores/:id/productos` | Productos del proveedor |
+
+```js
+db.productos.find({ id_proveedor: ObjectId('670000000000000000000001') });
+```
 
 ---
 
-## 4. Ventas (proceso principal)
+## 4. Ventas
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| GET | `/api/ventas` | Listar ventas (`?estado=`, `?desde=`, `?hasta=`) |
-| GET | `/api/ventas/:id` | Cabecera + detalle de una venta |
-| POST | `/api/ventas` | Registrar venta completa (cabecera + líneas) |
-| PATCH | `/api/ventas/:id/estado` | Cambiar estado (Completada / Anulada) |
-| GET | `/api/ventas/:id/detalle` | Solo líneas de detalle |
+| GET | `/api/ventas` | Listar (`?estado=`, fechas) |
+| GET | `/api/ventas/:id` | Cabecera + detalle embebido |
+| POST | `/api/ventas` | Registrar venta completa |
+| PATCH | `/api/ventas/:id/estado` | Completada / Anulada |
 
-### Body ejemplo — `POST /api/ventas`
+### Body — `POST /api/ventas`
 
 ```json
 {
-  "id_cliente": 1,
+  "id_cliente": "672000000000000000000001",
   "metodo_pago": "Tarjeta",
   "items": [
-    { "id_producto": 1, "cantidad": 1, "descuento": 0 },
-    { "id_producto": 5, "cantidad": 2, "descuento": 50.00 }
+    { "id_producto": "671000000000000000000001", "cantidad": 1, "descuento": 0 },
+    { "id_producto": "671000000000000000000005", "cantidad": 2, "descuento": 50 }
   ]
 }
 ```
 
-### Consulta clave — venta con detalle
+### Consulta — venta con cliente
 
-```sql
-SELECT
-  v.id_venta, v.fecha_venta, v.subtotal, v.impuesto, v.total,
-  v.metodo_pago, v.estado,
-  c.nombres, c.apellidos, c.documento,
-  d.id_detalle, d.cantidad, d.precio_unitario, d.descuento, d.subtotal_linea,
-  p.codigo_sku, p.nombre AS producto
-FROM ventas v
-INNER JOIN clientes c      ON c.id_cliente = v.id_cliente
-INNER JOIN detalle_venta d ON d.id_venta = v.id_venta
-INNER JOIN productos p     ON p.id_producto = d.id_producto
-WHERE v.id_venta = ?;
+```js
+db.ventas.aggregate([
+  { $match: { _id: ObjectId('673000000000000000000002') } },
+  {
+    $lookup: {
+      from: 'clientes',
+      localField: 'id_cliente',
+      foreignField: '_id',
+      as: 'cliente'
+    }
+  },
+  { $unwind: '$cliente' }
+]);
+```
+
+### Proceso de venta (transacción)
+
+```js
+const session = db.getMongo().startSession();
+session.startTransaction();
+try {
+  const productosCol = session.getDatabase('tienda_computadoras').productos;
+  const ventasCol = session.getDatabase('tienda_computadoras').ventas;
+
+  // 1) Validar y descontar stock
+  // 2) Insertar venta con detalle embebido
+  // 3) commitTransaction()
+  session.commitTransaction();
+} catch (e) {
+  session.abortTransaction();
+  throw e;
+} finally {
+  session.endSession();
+}
 ```
 
 ---
@@ -109,124 +143,26 @@ WHERE v.id_venta = ?;
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| GET | `/api/reportes/ventas-periodo` | Totales por rango de fechas |
-| GET | `/api/reportes/productos-mas-vendidos` | Ranking de productos |
-| GET | `/api/reportes/stock-bajo` | Productos con stock bajo umbral |
+| GET | `/api/reportes/productos-mas-vendidos` | Ranking |
+| GET | `/api/reportes/stock-bajo` | Stock ≤ umbral |
 
-### Consulta — productos más vendidos
+```js
+// Productos más vendidos
+db.ventas.aggregate([
+  { $match: { estado: 'Completada' } },
+  { $unwind: '$detalle' },
+  {
+    $group: {
+      _id: '$detalle.codigo_sku',
+      nombre: { $first: '$detalle.nombre' },
+      unidades: { $sum: '$detalle.cantidad' },
+      ingreso: { $sum: '$detalle.subtotal_linea' }
+    }
+  },
+  { $sort: { unidades: -1 } },
+  { $limit: 10 }
+]);
 
-```sql
-SELECT p.codigo_sku, p.nombre,
-       SUM(d.cantidad) AS unidades_vendidas,
-       SUM(d.subtotal_linea) AS ingreso_bruto
-FROM detalle_venta d
-INNER JOIN productos p ON p.id_producto = d.id_producto
-INNER JOIN ventas v    ON v.id_venta = d.id_venta
-WHERE v.estado = 'Completada'
-GROUP BY p.id_producto, p.codigo_sku, p.nombre
-ORDER BY unidades_vendidas DESC
-LIMIT 10;
-```
-
-### Consulta — stock bajo
-
-```sql
-SELECT id_producto, codigo_sku, nombre, stock, precio_unitario
-FROM productos
-WHERE activo = 1 AND stock <= 10
-ORDER BY stock ASC;
-```
-
----
-
-## 6. Procedimiento almacenado — registrar venta
-
-Transacción atómica: valida stock, inserta cabecera y detalle, descuenta inventario y calcula totales con IGV 18%.
-
-```sql
-DELIMITER $$
-
-CREATE PROCEDURE sp_registrar_venta(
-  IN p_id_cliente INT,
-  IN p_metodo_pago VARCHAR(40),
-  IN p_id_producto INT,
-  IN p_cantidad INT,
-  IN p_descuento DECIMAL(12,2)
-)
-BEGIN
-  DECLARE v_precio DECIMAL(12,2);
-  DECLARE v_stock INT;
-  DECLARE v_subtotal_linea DECIMAL(12,2);
-  DECLARE v_id_venta INT;
-  DECLARE v_igv DECIMAL(12,2);
-  DECLARE v_total DECIMAL(12,2);
-
-  DECLARE EXIT HANDLER FOR SQLEXCEPTION
-  BEGIN
-    ROLLBACK;
-    RESIGNAL;
-  END;
-
-  START TRANSACTION;
-
-  SELECT precio_unitario, stock
-    INTO v_precio, v_stock
-  FROM productos
-  WHERE id_producto = p_id_producto AND activo = 1
-  FOR UPDATE;
-
-  IF v_stock IS NULL THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Producto no encontrado o inactivo';
-  END IF;
-
-  IF v_stock < p_cantidad THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Stock insuficiente';
-  END IF;
-
-  SET v_subtotal_linea = (p_cantidad * v_precio) - IFNULL(p_descuento, 0);
-  SET v_igv = ROUND(v_subtotal_linea * 0.18, 2);
-  SET v_total = v_subtotal_linea + v_igv;
-
-  INSERT INTO ventas (id_cliente, subtotal, impuesto, total, metodo_pago, estado)
-  VALUES (p_id_cliente, v_subtotal_linea, v_igv, v_total, p_metodo_pago, 'Completada');
-
-  SET v_id_venta = LAST_INSERT_ID();
-
-  INSERT INTO detalle_venta (id_venta, id_producto, cantidad, precio_unitario, descuento, subtotal_linea)
-  VALUES (v_id_venta, p_id_producto, p_cantidad, v_precio, IFNULL(p_descuento, 0), v_subtotal_linea);
-
-  UPDATE productos
-  SET stock = stock - p_cantidad
-  WHERE id_producto = p_id_producto;
-
-  COMMIT;
-
-  SELECT v_id_venta AS id_venta, v_total AS total;
-END$$
-
-DELIMITER ;
-```
-
-### Uso desde la API
-
-`POST /api/ventas` puede invocar `CALL sp_registrar_venta(?, ?, ?, ?, ?)` por cada ítem (o una variante multi-línea) dentro de la misma transacción de aplicación.
-
----
-
-## 7. Diagrama de flujo del proceso de venta
-
-```
-Cliente → POST /api/ventas
-            │
-            ▼
-     Validar cliente y stock
-            │
-            ▼
-     INSERT ventas + detalle_venta
-            │
-            ▼
-     UPDATE productos.stock
-            │
-            ▼
-     Respuesta 201 + id_venta / total
+// Stock bajo
+db.productos.find({ activo: true, stock: { $lte: 10 } }).sort({ stock: 1 });
 ```

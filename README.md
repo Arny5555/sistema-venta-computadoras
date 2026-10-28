@@ -2,35 +2,32 @@
 
 ## Descripción técnica
 
-Proyecto de diseño conceptual, lógico y físico de base de datos para un sistema de venta de computadoras y periféricos. Incluye:
+Proyecto de diseño de base de datos **MongoDB** para un sistema de venta de computadoras y periféricos. Incluye:
 
-- Diccionario de datos y Diagrama Entidad-Relación (Mermaid) en `/docs`
-- Scripts DDL (creación de tablas, claves y restricciones) y DML (datos de prueba) en `/database`
-- Documentación de rutas/API y consultas clave del proceso de venta en `/routes`
+- Diccionario de datos y diagrama de colecciones (Mermaid) en `/docs`
+- Script de carga inicial (`mongodb_seed.js`) en `/database`
+- Documentación de rutas/API y consultas clave en `/routes`
 
-Motor de base de datos recomendado: **MySQL 8+** o **MariaDB 10.5+** (también compatible con PostgreSQL con ajustes menores de sintaxis).
+Motor: **MongoDB 7+** (local, Docker o Atlas). Cliente recomendado: **MongoDB Compass**.
 
-Modelo relacional principal:
+### Colecciones
 
-| Entidad      | Descripción                                      |
-|--------------|--------------------------------------------------|
-| proveedores  | Empresas que abastecen el inventario             |
-| productos    | Computadoras, laptops y componentes en venta     |
-| clientes     | Personas o empresas que realizan compras         |
-| ventas       | Cabecera de cada transacción de venta            |
-| detalle_venta| Líneas de productos asociados a cada venta       |
+| Colección   | Descripción                                      |
+|-------------|--------------------------------------------------|
+| proveedores | Empresas que abastecen el inventario             |
+| productos   | Computadoras, laptops y componentes en venta     |
+| clientes    | Personas que realizan compras                    |
+| ventas      | Transacciones con detalle embebido por línea     |
 
 ## Datos de identificación
 
 | Campo        | Valor |
 |--------------|-------|
-| Nombre       |       |
+| Nombre       | Saravia Chavez Arny Ruben |
 | Carrera      |       |
 | Asignatura   |       |
 | Institución  |       |
-| Fecha        |       |
-
-> Completa este bloque con tus datos personales antes de la entrega final.
+| Fecha        | 27/10/2026 |
 
 ## Estructura del repositorio
 
@@ -40,55 +37,43 @@ sistema-venta-computadoras/
 ├── docs/
 │   └── diccionario_y_diagrama.md
 ├── database/
-│   ├── ddl.sql
-│   └── dml.sql
+│   └── mongodb_seed.js
 └── routes/
     └── endpoints.md
 ```
 
-## Instrucciones de ejecución de la base de datos
+## Instrucciones de ejecución (MongoDB)
 
-### Requisitos previos
-
-1. Tener instalado MySQL o MariaDB.
-2. Acceso a un cliente SQL (MySQL Workbench, DBeaver, CLI `mysql`, o similar).
-
-### Paso 1 — Crear la base de datos
+### Opción A — Docker (recomendado)
 
 ```bash
-mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS tienda_computadoras CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+docker run -d --name tienda-mongo -p 27017:27017 mongo:7
+docker cp database/mongodb_seed.js tienda-mongo:/seed.js
+docker exec tienda-mongo mongosh "mongodb://127.0.0.1:27017/tienda_computadoras" /seed.js
 ```
 
-### Paso 2 — Ejecutar el script DDL (estructura)
+### Opción B — mongosh local
 
 ```bash
-mysql -u root -p tienda_computadoras < database/ddl.sql
+mongosh "mongodb://127.0.0.1:27017/tienda_computadoras" database/mongodb_seed.js
 ```
 
-Esto crea las tablas `proveedores`, `productos`, `clientes`, `ventas` y `detalle_venta`, con claves primarias, foráneas e índices.
+### Ver en MongoDB Compass
 
-### Paso 3 — Ejecutar el script DML (datos de prueba)
+1. Conexión: `mongodb://127.0.0.1:27017`
+2. Base de datos: `tienda_computadoras`
+3. Colecciones: `proveedores`, `productos`, `clientes`, `ventas`
 
-```bash
-mysql -u root -p tienda_computadoras < database/dml.sql
+### Verificar
+
+```js
+use tienda_computadoras
+show collections
+db.productos.find().pretty()
+db.ventas.find({ estado: "Completada" }).pretty()
 ```
-
-Inserta al menos 5 registros de prueba en cada tabla.
-
-### Paso 4 — Verificar
-
-```sql
-USE tienda_computadoras;
-SHOW TABLES;
-SELECT COUNT(*) AS total_productos FROM productos;
-SELECT COUNT(*) AS total_ventas FROM ventas;
-```
-
-### Nota sobre MongoDB Compass
-
-Este entregable usa un **modelo relacional SQL**. Si tienes MongoDB Compass abierto, puedes usarlo para otros ejercicios NoSQL del curso; para este proyecto ejecuta los scripts `.sql` en MySQL/MariaDB.
 
 ## Documentación adicional
 
-- [Diccionario de datos y Diagrama ER](docs/diccionario_y_diagrama.md)
-- [Rutas / API y consultas clave](routes/endpoints.md)
+- [Diccionario de datos y diagrama](docs/diccionario_y_diagrama.md)
+- [Rutas / API y consultas](routes/endpoints.md)
